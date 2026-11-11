@@ -1762,3 +1762,86 @@ async def test_wait_ready_does_not_extend_leftover_playing(tmp_path, monkeypatch
     )
     assert ready is False
     assert time.monotonic() - launch_at < 1.2
+
+
+@pytest.mark.asyncio
+async def test_wait_ready_hybrid_foreground_backend_used(tmp_path):
+    """Hybrid tuners where primary backend lacks current_app must use foreground_backend."""
+    store = ConfigStore(data_dir=tmp_path)
+    manager = TunerManager(store)
+
+    agent_backend = StubBackend()
+    agent_backend.capabilities = Capabilities(current_app=False, playback_state=False)
+
+    remote_backend = StubBackend()
+    remote_backend.capabilities = Capabilities(current_app=True, playback_state=False)
+    remote_backend.current = "com.altitudeplus"
+
+    channel = Channel(
+        number=3000,
+        name="Altitude Sports",
+        package_name="com.altitudeplus",
+        url="",
+    )
+    options = GlobalOptions(
+        wait_for_playback=False,
+        tune_timeout_seconds=5.0,
+        ready_settle_seconds=0.0,
+    )
+    launch_at = time.monotonic()
+    ready = await manager._wait_ready(
+        agent_backend,
+        channel,
+        "com.altitudeplus",
+        options,
+        launch_at + options.tune_timeout_seconds,
+        foreground_backend=remote_backend,
+    )
+    assert ready is True
+    # Should ready promptly via remote_backend foreground detection, not sleep 3s
+    assert time.monotonic() - launch_at < 1.5
+
+
+@pytest.mark.asyncio
+async def test_wait_ready_package_only_relaunch_when_dropped_from_foreground(tmp_path):
+    """A package-only launch that drops from foreground must be relaunched."""
+    store = ConfigStore(data_dir=tmp_path)
+    manager = TunerManager(store)
+
+    backend = StubBackend()
+    backend.capabilities = Capabilities(current_app=True, playback_state=False)
+    backend.current = "com.google.android.apps.tv.launcherx"
+
+    channel = Channel(
+        number=3000,
+        name="Altitude Sports",
+        package_name="com.altitudeplus",
+        url="",
+    )
+    options = GlobalOptions(
+        wait_for_playback=False,
+        tune_timeout_seconds=2.0,
+        ready_settle_seconds=0.0,
+        deeplink_relaunch_seconds=0.2,
+    )
+
+    relaunches = 0
+
+    async def _relaunch() -> None:
+        nonlocal relaunches
+        relaunches += 1
+        backend.current = "com.altitudeplus"
+
+    launch_at = time.monotonic()
+    ready = await manager._wait_ready(
+        backend,
+        channel,
+        "com.altitudeplus",
+        options,
+        launch_at + options.tune_timeout_seconds,
+        launch_at=launch_at,
+        relaunch=_relaunch,
+    )
+    assert ready is True
+    assert relaunches == 1
+
