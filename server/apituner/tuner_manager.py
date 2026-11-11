@@ -930,6 +930,11 @@ class TunerManager:
                 prior_app = await backend.current_app()
             except Exception:  # noqa: BLE001
                 pass
+        elif cmd_backend is not None and cmd_backend.capabilities.current_app:
+            try:
+                prior_app = await cmd_backend.current_app()
+            except Exception:  # noqa: BLE001
+                pass
 
         leftover_title: Optional[str] = None
         leftover_state: Optional[PlaybackState] = None
@@ -1015,12 +1020,28 @@ class TunerManager:
                 clear_task=stale_pkg,
             )
 
+        async def _relaunch_package() -> None:
+            logger.info(
+                "Re-launching package %s for channel %s (%s) on %s",
+                chosen_pkg,
+                channel.number,
+                channel.name,
+                tuner.name,
+            )
+            await _backend_launch(
+                backend,
+                package=chosen_pkg,
+                component=channel.component,
+                action=channel.action,
+                extras=channel.extra_string,
+            )
+
         relaunch: Optional[Callable[[], Awaitable[None]]] = None
-        if (
-            options.deeplink_relaunch_seconds > 0
-            and (launch_url or "").strip()
-        ):
-            relaunch = _relaunch_deeplink
+        if options.deeplink_relaunch_seconds > 0:
+            if (launch_url or "").strip():
+                relaunch = _relaunch_deeplink
+            else:
+                relaunch = _relaunch_package
 
         not_ready: list[str] = []
         ready = await self._wait_ready(
@@ -1322,8 +1343,14 @@ class TunerManager:
         seen_non_playing = False
         stale_playing = bool(same_app_switch and stale_pkg)
 
+        has_current_app = caps.current_app or (
+            foreground_backend is not None
+            and foreground_backend is not backend
+            and foreground_backend.capabilities.current_app
+        )
+
         # No readiness signal at all: fixed short delay then accept.
-        if not use_playback and not caps.current_app:
+        if not use_playback and not has_current_app:
             await asyncio.sleep(min(3.0, max(0.0, deadline - loop.time())))
             return True
 
@@ -1424,7 +1451,7 @@ class TunerManager:
             # A dropped deeplink stays on the launcher. Re-send it. DirecTV
             # that is already open waits longer above so HOME does not restart it.
             if (
-                reason != "idle"
+                reason not in ("idle", "not_in_foreground")
                 and not stale_pkg
                 and not await _foreground_in_targets()
             ):
@@ -1659,7 +1686,13 @@ class TunerManager:
                 if not stale_playing:
                     app = await _foreground_package()
                     if app and app in targets:
+                        settle = max(0.0, float(options.ready_settle_seconds))
+                        if settle and loop.time() - launch_at < settle:
+                            await asyncio.sleep(min(0.2, deadline - loop.time()))
+                            continue
                         return True
+                    if can_relaunch:
+                        await _maybe_relaunch("not_in_foreground")
 
             poll = 0.75
             if can_relaunch and relaunch_count < max_relaunches:
