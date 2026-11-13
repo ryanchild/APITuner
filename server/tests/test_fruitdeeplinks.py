@@ -139,3 +139,53 @@ def test_apply_fdl_channels_preserves_customizations(tmp_path):
     assert updated.tvc_guide_stationid == "99999"
 
 
+def test_lane_resolver_url_aiv_profile():
+    url_gtv = lane_resolver_url(
+        "http://192.0.2.40:6655", "aiv", 1, profile="google_tv"
+    )
+    assert "deeplink_format=http" in url_gtv
+    assert "dynamic_url_json_key=deeplink_url" in url_gtv
+    assert "format=json" in url_gtv
+
+    url_fire = lane_resolver_url("http://192.0.2.40:6655", "aiv", 1, profile="fire")
+    assert "deeplink_format=http" not in url_fire
+    assert "dynamic_url_json_key=deeplink_url" in url_fire
+
+
+def test_channels_from_adb_lanes_defaults_aiv_key_macro_google_tv():
+    providers = [
+        {"provider_code": "aiv", "adb_enabled": 1, "adb_lane_count": 1},
+        {"provider_code": "sportscenter", "adb_enabled": 1, "adb_lane_count": 1},
+    ]
+    gtv_channels, _ = channels_from_adb_lanes(
+        providers,
+        base_url="http://192.0.2.40:6655",
+        profile="google_tv",
+        start_number=3000,
+    )
+    aiv_ch = next(c for c in gtv_channels if c.provider_name == "aiv")
+    assert aiv_ch.key_macro == [
+        "DPAD_CENTER",
+        "SLEEP 1.5",
+        "DPAD_CENTER",
+        "SLEEP 1.5",
+        "DPAD_CENTER",
+    ]
+    assert "deeplink_format=http" in aiv_ch.url
+
+    espn_ch = next(c for c in gtv_channels if c.provider_name == "sportscenter")
+    assert espn_ch.key_macro is None
+    assert "deeplink_format=http" not in espn_ch.url
+
+    fire_channels, _ = channels_from_adb_lanes(
+        providers,
+        base_url="http://192.0.2.40:6655",
+        profile="fire",
+        start_number=3000,
+    )
+    fire_aiv = next(c for c in fire_channels if c.provider_name == "aiv")
+    assert fire_aiv.key_macro is None
+    assert "deeplink_format=http" not in fire_aiv.url
+
+
+

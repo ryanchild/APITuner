@@ -105,3 +105,39 @@ def test_code_from_display_name():
     assert "sportscenter" in sports["schemes"]
     assert sports["packages"]["google_tv"]["package_name"] == "com.espn.score_center"
     assert sports["packages"]["fire"]["package_name"] == "com.espn.gtv"
+
+
+def test_convert_aiv_to_http():
+    from apituner.deeplink_catalog import convert_aiv_to_http
+
+    # broadcast gti preferred over series gti
+    url = (
+        "aiv://aiv/detail?gti=amzn1.dv.gti.series-123"
+        "&action=watch&type=live&territory=US&time=live"
+        "&broadcast=amzn1.dv.gti.broadcast-456"
+        "&refMarker=atv_dvm"
+    )
+    assert convert_aiv_to_http(url) == (
+        "https://app.primevideo.com/detail?gti=amzn1.dv.gti.broadcast-456"
+    )
+
+    # fallback to gti when broadcast is absent
+    url_gti = "aiv://aiv/detail?gti=amzn1.dv.gti.event-789"
+    assert convert_aiv_to_http(url_gti) == (
+        "https://app.primevideo.com/detail?gti=amzn1.dv.gti.event-789"
+    )
+
+    # asin support
+    url_asin = "aiv://aiv/play?asin=B00TEST123"
+    assert convert_aiv_to_http(url_asin) == (
+        "https://app.primevideo.com/detail?asin=B00TEST123"
+    )
+
+    # non-aiv URL unchanged
+    assert convert_aiv_to_http("https://app.primevideo.com/detail?gti=123") == (
+        "https://app.primevideo.com/detail?gti=123"
+    )
+    assert convert_aiv_to_http("sportscenter://stream?id=1") == (
+        "sportscenter://stream?id=1"
+    )
+

@@ -27,6 +27,7 @@ from .config_interpreter import (
     run_commands,
 )
 from .deeplink_catalog import (
+    convert_aiv_to_http,
     infer_provider,
     merge_package_try_order,
     packages_for,
@@ -894,6 +895,11 @@ class TunerManager:
         )
         inferred = packages_for(infer_provider(launch_url), profile=profile)
         fallbacks = merge_package_try_order(fallbacks, inferred)
+
+        if (launch_url or "").lower().startswith("aiv://") and (
+            "com.amazon.amazonvideo.livingroom" in set(fallbacks) or profile != "fire"
+        ):
+            launch_url = convert_aiv_to_http(launch_url)
 
         package_only = not (
             (launch_url and str(launch_url).strip())

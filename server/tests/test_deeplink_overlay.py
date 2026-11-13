@@ -362,3 +362,49 @@ async def test_hybrid_dpad_capability_requires_pairing():
     caps = await split.get_live_capabilities()
     assert caps["dpad"] is True
     assert caps["keys"] is True
+
+
+@pytest.mark.asyncio
+async def test_aiv_deeplink_translates_to_http_on_google_tv(tmp_path):
+    store = ConfigStore(data_dir=tmp_path)
+    manager = TunerManager(store)
+    agent = RecordingBackend(dpad=False)
+
+    async def _aiv_app():
+        return "com.amazon.amazonvideo.livingroom"
+
+    agent.current_app = _aiv_app  # type: ignore[assignment]
+
+    tuner = Tuner(
+        id="t1",
+        name="onn",
+        control=ControlConfig(type="http_agent", host="192.0.2.1"),
+        stream_endpoint="http://192.0.2.2/s",
+    )
+    channel = Channel(
+        number=3010,
+        name="Prime Video",
+        package_name="com.amazon.amazonvideo.livingroom",
+        alternate_package_name="com.amazon.avod",
+        url="aiv://aiv/detail?gti=amzn1.dv.gti.series-1&broadcast=amzn1.dv.gti.live-2",
+    )
+
+    await manager._do_tune(
+        tuner,
+        agent,
+        channel,
+        "tune-aiv",
+        GlobalOptions(wait_for_playback=False, ready_settle_seconds=0),
+        app_play=None,
+        overlay=None,
+        command_backend=agent,
+    )
+
+    assert agent.launches == [
+        (
+            "com.amazon.amazonvideo.livingroom",
+            "https://app.primevideo.com/detail?gti=amzn1.dv.gti.live-2",
+        )
+    ]
+
+

@@ -59,7 +59,7 @@ def whatson_resolver_url(base: str, lane: int) -> str:
     return normalize_resolver_url(f"{root}/whatson/{lane}?include=deeplink")
 
 
-def rewrite_playlist_url(url: str) -> str:
+def rewrite_playlist_url(url: str, *, profile: Optional[str] = None) -> str:
     """Turn FDL HLS /lane/N/stream.m3u8 entries into /whatson/N resolvers."""
     raw = (url or "").strip()
     lane = parse_virtual_stream_url(raw)
@@ -67,10 +67,10 @@ def rewrite_playlist_url(url: str) -> str:
         parsed = urlparse(raw)
         base = f"{parsed.scheme}://{parsed.netloc}"
         return whatson_resolver_url(base, lane)
-    return normalize_resolver_url(raw)
+    return normalize_resolver_url(raw, profile=profile)
 
 
-def normalize_resolver_url(url: str) -> str:
+def normalize_resolver_url(url: str, *, profile: Optional[str] = None) -> str:
     """Keep lane resolvers; prefer JSON + deeplink_url key for empty-lane errors."""
     raw = (url or "").strip()
     if not raw:
@@ -94,6 +94,12 @@ def normalize_resolver_url(url: str) -> str:
         qs["format"] = ["json"]
     elif fmt in ("text", "txt"):
         qs["format"] = ["json"]
+    lane = parse_lane_url(raw)
+    if (lane and lane[0] == "aiv") or "/lanes/aiv/" in path or "/aiv/" in path:
+        from .deeplink_catalog import normalize_profile
+
+        if normalize_profile(profile) != "fire" and "deeplink_format" not in qs:
+            qs["deeplink_format"] = ["http"]
     flat: list[tuple[str, str]] = []
     for key, values in qs.items():
         for value in values:
@@ -132,7 +138,7 @@ def channels_from_m3u(
 
     def flush(url: str) -> None:
         nonlocal next_number
-        url = rewrite_playlist_url(url.strip())
+        url = rewrite_playlist_url(url.strip(), profile=profile)
         if not url or url.startswith("#"):
             return
         attrs = dict(pending_attrs)
@@ -181,7 +187,13 @@ def channels_from_m3u(
                     }
                 )
                 return
-        launch_url = url if "/whatson/" in url else normalize_resolver_url(url)
+        launch_url = url
+        km = attrs.get("key_macro") or attrs.get("key-macro")
+        if not km and code == "aiv":
+            from .deeplink_catalog import normalize_profile
+
+            if normalize_profile(profile) != "fire":
+                km = ["DPAD_CENTER", "SLEEP 1.5", "DPAD_CENTER", "SLEEP 1.5", "DPAD_CENTER"]
         # Do not copy M3U tvg-id (e.g. FDL lane.1). APITuner XMLTV remaps those
         # lanes onto channel ids; emitting the foreign id on our playlist can
         # steal Channels DVR matching. JSON import still stores tvg_id.
@@ -194,6 +206,7 @@ def channels_from_m3u(
                 "alternate_package_name": alternate,
                 "url": launch_url,
                 "action": "android.intent.action.VIEW",
+                "key_macro": km,
                 "source": source,
             }
         )

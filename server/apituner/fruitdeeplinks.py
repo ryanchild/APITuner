@@ -14,6 +14,7 @@ from .channels import ChannelValidationError
 from .config import ConfigStore
 from .deeplink_catalog import (
     code_from_display_name,
+    normalize_profile,
     packages_for,
     parse_lane_url,
     parse_whatson_url,
@@ -55,9 +56,23 @@ def _next_free(number: int, taken: set[int]) -> tuple[int, int]:
     return chosen, number + 1
 
 
-def lane_resolver_url(base: str, provider: str, lane: int) -> str:
+AIV_GOOGLE_TV_KEY_MACRO = [
+    "DPAD_CENTER",
+    "SLEEP 1.5",
+    "DPAD_CENTER",
+    "SLEEP 1.5",
+    "DPAD_CENTER",
+]
+
+
+def lane_resolver_url(
+    base: str, provider: str, lane: int, *, profile: Optional[str] = None
+) -> str:
     path = f"/api/adb/lanes/{provider}/{lane}/deeplink"
-    return normalize_resolver_url(urljoin(base.rstrip("/") + "/", path.lstrip("/")))
+    url = urljoin(base.rstrip("/") + "/", path.lstrip("/"))
+    if provider.strip().lower() == "aiv" and normalize_profile(profile) != "fire":
+        url = f"{url}?deeplink_format=http"
+    return normalize_resolver_url(url, profile=profile)
 
 
 def channels_from_adb_lanes(
@@ -99,6 +114,9 @@ def channels_from_adb_lanes(
         package, alternate = mapped
         for lane in range(1, count + 1):
             ch_number, number = _next_free(number, taken)
+            km: Optional[list[str]] = None
+            if code == "aiv" and normalize_profile(profile) != "fire":
+                km = list(AIV_GOOGLE_TV_KEY_MACRO)
             channels.append(
                 Channel(
                     id=fdl_deterministic_channel_id(code, lane),
@@ -107,9 +125,10 @@ def channels_from_adb_lanes(
                     provider_name=code,
                     package_name=package,
                     alternate_package_name=alternate,
-                    url=lane_resolver_url(base_url, code, lane),
+                    url=lane_resolver_url(base_url, code, lane, profile=profile),
                     action="android.intent.action.VIEW",
                     source=FDL_SOURCE,
+                    key_macro=km,
                 )
             )
     return channels, skipped

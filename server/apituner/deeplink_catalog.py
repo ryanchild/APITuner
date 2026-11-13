@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Literal, Optional, Sequence
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 DeeplinkProfile = Literal["google_tv", "fire"]
 
@@ -401,3 +401,21 @@ def catalog_payload() -> dict[str, Any]:
             }
         )
     return {"profiles": ["google_tv", "fire"], "providers": providers}
+
+
+def convert_aiv_to_http(url: str) -> str:
+    """Convert a Fire TV aiv:// URI to an Android TV https://app.primevideo.com/ URI."""
+    raw = (url or "").strip()
+    if not raw.lower().startswith("aiv://"):
+        return raw
+    parsed = urlparse(raw)
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    broadcast = (qs.get("broadcast") or [None])[0]
+    gti = broadcast or (qs.get("gti") or [None])[0]
+    if gti:
+        return f"https://app.primevideo.com/detail?gti={gti}"
+    asin = (qs.get("asin") or [None])[0]
+    if asin:
+        return f"https://app.primevideo.com/detail?asin={asin}"
+    return raw
+
