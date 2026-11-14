@@ -98,3 +98,38 @@ def test_import_source_replace_keeps_yttv(tmp_path):
     assert len([c for c in store.config.channels if c.source == "fruitdeeplinks"]) == 1
     exported = store.export_channels()
     assert any(row.get("source") == "fruitdeeplinks" for row in exported)
+
+
+def test_normalize_resolver_url_aiv():
+    url = "http://192.0.2.40:6655/api/adb/lanes/aiv/1/deeplink?format=text"
+    gtv = normalize_resolver_url(url, profile="google_tv")
+    assert "deeplink_format=http" in gtv
+    assert "dynamic_url_json_key=deeplink_url" in gtv
+
+    fire = normalize_resolver_url(url, profile="fire")
+    assert "deeplink_format=http" not in fire
+
+
+def test_channels_from_m3u_aiv_defaults():
+    text = """#EXTM3U
+#EXTINF:-1 channel-id="ADB-aiv-001" tvg-name="Prime Video 1" group-title="ADB Prime Video",Prime Video 1
+http://192.0.2.40:6655/api/adb/lanes/aiv/1/deeplink?format=text
+"""
+    channels, _ = channels_from_m3u(text, profile="google_tv", start_number=3010)
+    assert len(channels) == 1
+    ch = channels[0]
+    assert ch["provider_name"] == "aiv"
+    assert "deeplink_format=http" in ch["url"]
+    assert ch["key_macro"] == [
+        "DPAD_CENTER",
+        "SLEEP 1.5",
+        "DPAD_CENTER",
+        "SLEEP 1.5",
+        "DPAD_CENTER",
+    ]
+
+    channels_fire, _ = channels_from_m3u(text, profile="fire", start_number=3010)
+    ch_fire = channels_fire[0]
+    assert "deeplink_format=http" not in ch_fire["url"]
+    assert ch_fire.get("key_macro") is None
+
